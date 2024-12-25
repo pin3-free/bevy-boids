@@ -1,4 +1,5 @@
 use bevy::color::palettes::css::{GREEN, RED, WHITE, YELLOW};
+use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
 
 use crate::prelude::*;
 
@@ -8,47 +9,68 @@ pub struct BoidsPlugin {
     pub max_speed: f32,
     pub vision_radius: f32,
     pub separation_strength: f32,
+    pub cohesion_strength: f32,
+    pub alignment_strength: f32,
 }
 
 impl Default for BoidsPlugin {
     fn default() -> Self {
         Self {
             evasion: true,
-            max_force: 20.,
+            max_force: 30.,
             max_speed: 150.,
             vision_radius: 100.,
-            separation_strength: 50.,
+            separation_strength: 100.,
+            cohesion_strength: 70.,
+            alignment_strength: 10.,
         }
     }
 }
 
 impl Plugin for BoidsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(MaxSpeed(self.max_speed))
-            .insert_resource(MaxForce(self.max_force))
-            .insert_resource(VisionRadius(self.vision_radius))
-            .insert_resource(SeparationStrength(self.separation_strength))
-            .add_systems(
-                Update,
-                (
-                    rotate_boids,
-                    separation_boids,
-                    steer_boids,
-                    screenwrap_boids,
-                )
-                    .chain(),
+        let BoidsPlugin {
+            evasion: _,
+            max_force,
+            max_speed,
+            vision_radius,
+            separation_strength,
+            cohesion_strength,
+            alignment_strength,
+        } = *self;
+        app.insert_resource(SimulationConfig {
+            max_force,
+            max_speed,
+            vision_radius,
+            separation_strength,
+            cohesion_strength,
+            alignment_strength,
+        })
+        .register_type::<SimulationConfig>()
+        .add_plugins(ResourceInspectorPlugin::<SimulationConfig>::default())
+        .add_systems(
+            Update,
+            (
+                rotate_boids,
+                separation_boids,
+                cohesion_boids,
+                alignment_boids,
+                steer_boids,
+                screenwrap_boids,
             )
-            .add_systems(
-                Update,
-                (
-                    seek_cursor_boids
-                        .before(steer_boids)
-                        .after(separation_boids),
-                    boids_gizmos,
-                ),
-            )
-            .add_event::<BoidSpawn>()
-            .add_observer(spawn_boid);
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                seek_cursor_boids
+                    .before(steer_boids)
+                    .after(separation_boids),
+                boids_gizmos,
+            ),
+        )
+        .add_event::<BoidSpawn>()
+        .add_observer(spawn_boid);
 
         if self.evasion {
             // app.add_systems(Update, (boid_avoidance).after(move_boids_forward));
@@ -85,17 +107,16 @@ impl Default for SteeringDirection {
 )]
 pub struct Boid;
 
-#[derive(Resource, Debug)]
-pub struct MaxForce(f32);
-
-#[derive(Resource, Debug)]
-pub struct MaxSpeed(f32);
-
-#[derive(Resource, Debug)]
-pub struct VisionRadius(f32);
-
-#[derive(Resource, Debug)]
-pub struct SeparationStrength(f32);
+#[derive(Reflect, Resource, Default, InspectorOptions)]
+#[reflect(Resource)]
+pub struct SimulationConfig {
+    max_force: f32,
+    max_speed: f32,
+    vision_radius: f32,
+    separation_strength: f32,
+    cohesion_strength: f32,
+    alignment_strength: f32,
+}
 
 #[derive(Event, Default)]
 pub struct BoidSpawn {
@@ -112,7 +133,7 @@ pub fn spawn_boid(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    vision_radius: Res<VisionRadius>,
+    config: Res<SimulationConfig>,
 ) {
     let scale = 10.;
     let shape = Triangle2d::new(
@@ -150,7 +171,7 @@ pub fn spawn_boid(
             parent.spawn((
                 Name::new("Vision Cone"),
                 BoidVisionCone,
-                Collider::circle(vision_radius.0),
+                Collider::circle(config.vision_radius),
                 CollidingEntities::default(),
                 CollisionLayers::new(GameCollisionLayer::VisionCones, [GameCollisionLayer::Boids]),
                 Sensor,
@@ -166,17 +187,12 @@ pub fn boids_gizmos(
     q_special: Single<(Entity, &LinearVelocity, &SteeringDirection, &Transform), With<SpecialBoid>>,
     q_boids: Populated<&Transform, (With<Boid>, Without<SpecialBoid>)>,
     q_vision_cones: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
-    vision_radius: Res<VisionRadius>,
+    config: Res<SimulationConfig>,
     mut gizmos: Gizmos,
 ) {
     let (ent, linear_vel, steer, tr) = *q_special;
     let pos = tr.translation.truncate();
-    // Velocity gizmo
-    gizmos.arrow_2d(pos, pos + linear_vel.xy().normalize() * 30., GREEN);
-
-    // Steer gizmo
-    gizmos.arrow_2d(pos, pos + steer.0.xy().normalize() * 30., YELLOW);
-    gizmos.circle_2d(pos, vision_radius.0, WHITE);
+    gizmos.circle_2d(pos, config.vision_radius, WHITE);
 
     for (colliding_entities, parent) in q_vision_cones.iter() {
         if parent.get() != ent {
@@ -185,20 +201,26 @@ pub fn boids_gizmos(
 
         for colliding_ent in colliding_entities.iter() {
             let colliding_tr = q_boids.get(*colliding_ent).unwrap();
-            gizmos.line_2d(pos, colliding_tr.translation.truncate(), RED);
+            let distance = (colliding_tr.translation - tr.translation).length();
+            let lines_color = Color::srgba(
+                1.,
+                0.,
+                0.,
+                (config.vision_radius - distance) / config.vision_radius,
+            );
+            gizmos.line_2d(pos, colliding_tr.translation.truncate(), lines_color);
         }
     }
 }
 
 pub fn steer_boids(
     mut q_boids: Populated<(&SteeringDirection, &mut LinearVelocity)>,
-    max_speed: Res<MaxSpeed>,
-    max_force: Res<MaxForce>,
+    config: Res<SimulationConfig>,
 ) {
     for (steer_direction, mut linear_velocity) in q_boids.iter_mut() {
-        let steer_force = steer_direction.0.clamp_length_max(max_force.0);
+        let steer_force = steer_direction.0.clamp_length_max(config.max_force);
         let acceleration = steer_force; // Consider mass = 1
-        let new_velocity = (linear_velocity.xy() + acceleration).clamp_length_max(max_speed.0);
+        let new_velocity = (linear_velocity.xy() + acceleration).clamp_length_max(config.max_speed);
         *linear_velocity = LinearVelocity::from(new_velocity);
     }
 }
@@ -216,7 +238,7 @@ pub fn seek_cursor_boids(
     q_camera: Single<(&Camera, &GlobalTransform)>,
     window: Single<&Window>,
     mut gizmos: Gizmos,
-    max_force: Res<MaxForce>,
+    config: Res<SimulationConfig>,
 ) {
     let (camera, camera_tr) = *q_camera;
     let Some(cursor_pos) = window.cursor_position() else {
@@ -230,7 +252,7 @@ pub fn seek_cursor_boids(
 
     for (linear_vel, transform, mut steer) in q_boids.iter_mut() {
         let desired_vel = point - transform.translation.truncate();
-        let seek_steer = (desired_vel - linear_vel.xy()).clamp_length_max(max_force.0);
+        let seek_steer = (desired_vel - linear_vel.xy()).clamp_length_max(config.max_force);
         steer.0 += seek_steer / 17.5;
     }
 }
@@ -238,7 +260,7 @@ pub fn seek_cursor_boids(
 pub fn separation_boids(
     mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
     q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
-    separation_str: Res<SeparationStrength>,
+    config: Res<SimulationConfig>,
 ) {
     for (colliding_entities, parent) in q_boid_vision.iter() {
         if colliding_entities.len() == 0 {
@@ -247,18 +269,74 @@ pub fn separation_boids(
         }
         let mut separation_force = Vec2::ZERO;
         let parent_ent = parent.get();
-        let (_, parent_vel, parent_tr) = q_boids.get(parent_ent).unwrap();
+        let (_, _, parent_tr) = q_boids.get(parent_ent).unwrap();
 
         for colliding_ent in colliding_entities.iter() {
             let (_, _, other_tr) = q_boids.get(*colliding_ent).unwrap();
             let sep_force_cur = (parent_tr.translation - other_tr.translation).truncate();
-            let distance = sep_force_cur.clamp_length_min(0.001).length();
-            separation_force =
-                (separation_force + sep_force_cur).normalize() * separation_str.0 / distance;
+            separation_force = (separation_force + sep_force_cur).normalize()
+                * config.separation_strength
+                / config.vision_radius;
         }
 
         let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
         parent_steer.0 += separation_force;
+    }
+}
+
+pub fn cohesion_boids(
+    mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
+    q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
+    config: Res<SimulationConfig>,
+) {
+    for (colliding_entities, parent) in q_boid_vision.iter() {
+        if colliding_entities.len() == 0 {
+            // We should only do this whole thing if there's something to collide with
+            continue;
+        }
+
+        let mut avg_pos = Vec2::ZERO;
+        let parent_ent = parent.get();
+        let (_, _, parent_tr) = q_boids.get(parent_ent).unwrap();
+
+        for colliding_ent in colliding_entities.iter() {
+            let (_, _, other_tr) = q_boids.get(*colliding_ent).unwrap();
+            avg_pos += other_tr.translation.truncate();
+        }
+
+        avg_pos /= colliding_entities.len() as f32;
+
+        let to_avg_steer = avg_pos - parent_tr.translation.truncate();
+        let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
+        parent_steer.0 += to_avg_steer.normalize() * config.cohesion_strength;
+    }
+}
+
+pub fn alignment_boids(
+    mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
+    q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
+    config: Res<SimulationConfig>,
+) {
+    for (colliding_entities, parent) in q_boid_vision.iter() {
+        if colliding_entities.len() == 0 {
+            // We should only do this whole thing if there's something to collide with
+            continue;
+        }
+
+        let mut avg_vel = Vec2::ZERO;
+        let parent_ent = parent.get();
+        let (_, parent_vel, _) = q_boids.get(parent_ent).unwrap();
+
+        for colliding_ent in colliding_entities.iter() {
+            let (_, other_vel, _) = q_boids.get(*colliding_ent).unwrap();
+            avg_vel += other_vel.xy();
+        }
+
+        avg_vel /= colliding_entities.len() as f32;
+
+        let to_avg_vel_steer = avg_vel - parent_vel.xy();
+        let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
+        parent_steer.0 += to_avg_vel_steer.normalize() * config.alignment_strength;
     }
 }
 

@@ -1,3 +1,4 @@
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use boids::{BoidSpawn, BoidsPlaygroundPlugin, BoidsPlugin};
 
 use crate::prelude::*;
@@ -34,14 +35,9 @@ fn main() {
         .add_plugins((
             DefaultPlugins,
             PhysicsPlugins::default(),
+            // WorldInspectorPlugin::new(),
             // PhysicsDebugPlugin::default(),
-            BoidsPlugin {
-                evasion: false,
-                max_force: 20.,
-                max_speed: 150.,
-                vision_radius: 100.,
-                separation_strength: 50.,
-            },
+            BoidsPlugin::default(),
             BoidsPlaygroundPlugin {
                 x_count: 5,
                 y_count: 5,

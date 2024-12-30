@@ -1,10 +1,14 @@
-use crate::{boids::seek::SpawnSeekTarget, prelude::*, MainCamera};
+use crate::{
+    boids::targets::{SeekTarget, SpawnTarget},
+    prelude::*,
+    MainCamera,
+};
 
 pub struct SimulationInputPlugin;
 
 impl Plugin for SimulationInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, (handle_mouse_inputs));
+        app.add_systems(FixedUpdate, handle_mouse_inputs);
     }
 }
 
@@ -23,7 +27,7 @@ fn handle_mouse_inputs(
         let world_pos = camera
             .viewport_to_world_2d(camera_global_tr, cursor_pos)
             .expect("Cursor should convert");
-        commands.trigger(SpawnSeekTarget { pos: world_pos });
+        commands.trigger(SpawnTarget::<SeekTarget>::new(world_pos));
     }
 }
 

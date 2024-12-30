@@ -1,12 +1,13 @@
 use bevy::{color::palettes::css::WHITE, ecs::query::QueryData};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
 use seek::{Seek, SeekPlugin};
+use targets::TargetPlugin;
 
 use crate::prelude::*;
 
 pub mod seek;
 
-pub use seek::SeekTarget;
+pub mod targets;
 
 #[derive(QueryData)]
 #[query_data(mutable)]
@@ -70,6 +71,9 @@ impl Plugin for BoidsPlugin {
         })
         .register_type::<SimulationConfig>()
         .add_plugins(ResourceInspectorPlugin::<SimulationConfig>::default())
+        // Additional simulation plugins
+        .add_plugins(TargetPlugin)
+        // Behaviour plugins
         .add_plugins(SeekPlugin)
         .add_systems(
             FixedUpdate,
@@ -381,35 +385,5 @@ pub fn screenwrap_boids(
     for mut transform in q_boids.iter_mut() {
         transform.translation.x = wrapx(transform.translation.x);
         transform.translation.y = wrapy(transform.translation.y);
-    }
-}
-
-#[derive(Resource, Debug)]
-struct BoidPlacement {
-    x_gap: f32,
-    y_gap: f32,
-    x_count: i32,
-    y_count: i32,
-}
-
-fn setup(mut commands: Commands, boid_placement: Res<BoidPlacement>) {
-    let BoidPlacement {
-        x_gap,
-        y_gap,
-        x_count,
-        y_count,
-    } = *boid_placement;
-
-    for x in 0..x_count {
-        for y in 0..y_count {
-            let loc = (x as f32 * x_gap, y as f32 * y_gap).into();
-            let angle = rand::thread_rng().gen_range((0.)..std::f32::consts::TAU);
-            let trigger = BoidSpawn {
-                loc,
-                angle,
-                special: x == 0 && y == 0,
-            };
-            commands.trigger(trigger);
-        }
     }
 }

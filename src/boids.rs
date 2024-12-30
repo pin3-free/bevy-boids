@@ -1,7 +1,29 @@
-use bevy::color::palettes::css::{GREEN, RED, WHITE, YELLOW};
+use bevy::{color::palettes::css::WHITE, ecs::query::QueryData};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
+use seek::{Seek, SeekPlugin};
 
 use crate::prelude::*;
+
+pub mod seek;
+
+pub use seek::SeekTarget;
+
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct BoidsQuery {
+    boid: &'static Boid,
+    pub vel: &'static mut LinearVelocity,
+    pub transform: &'static Transform,
+    pub dir: &'static mut SteeringDirection,
+    pub entity: Entity,
+}
+
+#[derive(QueryData)]
+pub struct BoidVisionQuery {
+    vision_cone: &'static BoidVisionCone,
+    pub colliding: &'static CollidingEntities,
+    pub parent: &'static Parent,
+}
 
 pub struct BoidsPlugin {
     pub evasion: bool,
@@ -48,13 +70,14 @@ impl Plugin for BoidsPlugin {
         })
         .register_type::<SimulationConfig>()
         .add_plugins(ResourceInspectorPlugin::<SimulationConfig>::default())
+        .add_plugins(SeekPlugin)
         .add_systems(
-            Update,
+            FixedUpdate,
             (
                 rotate_boids,
-                separation_boids,
-                cohesion_boids,
-                alignment_boids,
+                // separation_boids,
+                // cohesion_boids,
+                // alignment_boids,
                 steer_boids,
                 screenwrap_boids,
             )
@@ -63,9 +86,9 @@ impl Plugin for BoidsPlugin {
         .add_systems(
             Update,
             (
-                seek_cursor_boids
-                    .before(steer_boids)
-                    .after(separation_boids),
+                // seek_cursor_boids
+                //     .before(steer_boids)
+                //     .after(separation_boids),
                 boids_gizmos,
             ),
         )
@@ -110,12 +133,12 @@ pub struct Boid;
 #[derive(Reflect, Resource, Default, InspectorOptions)]
 #[reflect(Resource)]
 pub struct SimulationConfig {
-    max_force: f32,
-    max_speed: f32,
-    vision_radius: f32,
-    separation_strength: f32,
-    cohesion_strength: f32,
-    alignment_strength: f32,
+    pub max_force: f32,
+    pub max_speed: f32,
+    pub vision_radius: f32,
+    pub separation_strength: f32,
+    pub cohesion_strength: f32,
+    pub alignment_strength: f32,
 }
 
 #[derive(Event, Default)]
@@ -155,6 +178,7 @@ pub fn spawn_boid(
     let boid = commands
         .spawn((
             Boid,
+            Seek,
             SteeringDirection(direction),
             Transform::from_translation(trigger.loc.extend(0.)),
             Mesh2d(mesh),
@@ -165,7 +189,10 @@ pub fn spawn_boid(
                 (scale / 2., -scale).into(),
             ),
             RigidBody::Kinematic,
-            CollisionLayers::new(GameCollisionLayer::Boids, [GameCollisionLayer::VisionCones]),
+            CollisionLayers::new(
+                GameCollisionLayer::Boids,
+                [GameCollisionLayer::VisionCones, GameCollisionLayer::Targets],
+            ),
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -173,42 +200,54 @@ pub fn spawn_boid(
                 BoidVisionCone,
                 Collider::circle(config.vision_radius),
                 CollidingEntities::default(),
-                CollisionLayers::new(GameCollisionLayer::VisionCones, [GameCollisionLayer::Boids]),
+                CollisionLayers::new(
+                    GameCollisionLayer::VisionCones,
+                    [GameCollisionLayer::Boids, GameCollisionLayer::Targets],
+                ),
                 Sensor,
             ));
         })
         .id();
+
     if trigger.special {
-        commands.entity(boid).insert(SpecialBoid);
+        commands
+            .entity(boid)
+            .insert((SpecialBoid, Name::new("Special Boid")));
     }
 }
 
 pub fn boids_gizmos(
-    q_special: Single<(Entity, &LinearVelocity, &SteeringDirection, &Transform), With<SpecialBoid>>,
-    q_boids: Populated<&Transform, (With<Boid>, Without<SpecialBoid>)>,
-    q_vision_cones: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
+    q_special: Single<BoidsQuery, With<SpecialBoid>>,
+    q_boids: Query<BoidsQuery, Without<SpecialBoid>>,
+    q_vision_cones: Query<BoidVisionQuery>,
     config: Res<SimulationConfig>,
     mut gizmos: Gizmos,
 ) {
-    let (ent, linear_vel, steer, tr) = *q_special;
-    let pos = tr.translation.truncate();
+    let pos = q_special.transform.translation.truncate();
     gizmos.circle_2d(pos, config.vision_radius, WHITE);
 
-    for (colliding_entities, parent) in q_vision_cones.iter() {
-        if parent.get() != ent {
+    for vision_cone in q_vision_cones.iter() {
+        if vision_cone.parent.get() != q_special.entity {
             continue;
         }
 
-        for colliding_ent in colliding_entities.iter() {
-            let colliding_tr = q_boids.get(*colliding_ent).unwrap();
-            let distance = (colliding_tr.translation - tr.translation).length();
-            let lines_color = Color::srgba(
-                1.,
-                0.,
-                0.,
-                (config.vision_radius - distance) / config.vision_radius,
-            );
-            gizmos.line_2d(pos, colliding_tr.translation.truncate(), lines_color);
+        for colliding_ent in vision_cone.colliding.iter() {
+            if let Ok(colliding_boid) = q_boids.get(*colliding_ent) {
+                let distance = (colliding_boid.transform.translation
+                    - q_special.transform.translation)
+                    .length();
+                let lines_color = Color::srgba(
+                    1.,
+                    0.,
+                    0.,
+                    (config.vision_radius - distance) / config.vision_radius,
+                );
+                gizmos.line_2d(
+                    pos,
+                    colliding_boid.transform.translation.truncate(),
+                    lines_color,
+                );
+            }
         }
     }
 }
@@ -230,30 +269,6 @@ pub fn rotate_boids(mut q_boids: Populated<(&LinearVelocity, &mut Transform), Wi
         let new_forward = an_vel.xy().normalize();
         let new_rot = Quat::from_rotation_z(new_forward.to_angle() - std::f32::consts::FRAC_PI_2);
         transform.rotation = new_rot
-    }
-}
-
-pub fn seek_cursor_boids(
-    mut q_boids: Populated<(&LinearVelocity, &Transform, &mut SteeringDirection), With<Boid>>,
-    q_camera: Single<(&Camera, &GlobalTransform)>,
-    window: Single<&Window>,
-    mut gizmos: Gizmos,
-    config: Res<SimulationConfig>,
-) {
-    let (camera, camera_tr) = *q_camera;
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
-    let Ok(point) = camera.viewport_to_world_2d(camera_tr, cursor_pos) else {
-        return;
-    };
-
-    gizmos.circle_2d(point, 10., WHITE);
-
-    for (linear_vel, transform, mut steer) in q_boids.iter_mut() {
-        let desired_vel = point - transform.translation.truncate();
-        let seek_steer = (desired_vel - linear_vel.xy()).clamp_length_max(config.max_force);
-        steer.0 += seek_steer / 17.5;
     }
 }
 
@@ -369,13 +384,6 @@ pub fn screenwrap_boids(
     }
 }
 
-pub struct BoidsPlaygroundPlugin {
-    pub x_count: i32,
-    pub y_count: i32,
-    pub x_gap: f32,
-    pub y_gap: f32,
-}
-
 #[derive(Resource, Debug)]
 struct BoidPlacement {
     x_gap: f32,
@@ -385,8 +393,6 @@ struct BoidPlacement {
 }
 
 fn setup(mut commands: Commands, boid_placement: Res<BoidPlacement>) {
-    commands.spawn(Camera2d);
-
     let BoidPlacement {
         x_gap,
         y_gap,
@@ -405,23 +411,5 @@ fn setup(mut commands: Commands, boid_placement: Res<BoidPlacement>) {
             };
             commands.trigger(trigger);
         }
-    }
-}
-
-impl Plugin for BoidsPlaygroundPlugin {
-    fn build(&self, app: &mut App) {
-        let BoidsPlaygroundPlugin {
-            x_count,
-            y_count,
-            x_gap,
-            y_gap,
-        } = *self;
-        app.insert_resource(BoidPlacement {
-            x_gap,
-            y_gap,
-            x_count,
-            y_count,
-        })
-        .add_systems(Startup, setup);
     }
 }

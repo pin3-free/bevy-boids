@@ -16,7 +16,7 @@ This creates a seemingly complex behavior that emerges from many boids following
 
 ## Where can I find more information?
 
-This repo aims to reproduce behaviors listed in this paper: [Steering Behaviors For Autonomous Characters]([url](https://www.red3d.com/cwr/steer/gdc99/)), which covers
+This repo aims to reproduce behaviors listed in this paper: [Steering Behaviors For Autonomous Characters]([url](https://www.red3d.com/cwr/steer/gdc99/), which covers
 more behaviors, such as seeking out a target, obstacle avoidance, roaming, etc.
 
 The boids algorithm itself was fist described here: [Flocks, Herds, and Schools: A Distributed Behavioral Model](https://www.cs.toronto.edu/~dt/siggraph97-course/cwr87/)

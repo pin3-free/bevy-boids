@@ -1,13 +1,27 @@
+use alignment::{Alignment, AlignmentPlugin, AlignmentSet};
 use bevy::{color::palettes::css::WHITE, ecs::query::QueryData};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
-use seek::{Seek, SeekPlugin};
+use cohesion::{Cohesion, CohesionPlugin, CohesionSet};
+use configuration::{ConfigurationPlugin, ConfigurationSet, MaxForce, MaxSpeed, VisionRadius};
+use seek::{Seek, SeekPlugin, SeekSet};
+use separation::{Separation, SeparationPlugin, SeparationSet};
 use targets::TargetPlugin;
+
+pub use configuration::SimulationConfig;
 
 use crate::prelude::*;
 
 pub mod seek;
 
+pub mod separation;
+
+pub mod alignment;
+
+pub mod cohesion;
+
 pub mod targets;
+
+pub mod configuration;
 
 #[derive(QueryData)]
 #[query_data(mutable)]
@@ -26,82 +40,45 @@ pub struct BoidVisionQuery {
     pub parent: &'static Parent,
 }
 
-pub struct BoidsPlugin {
-    pub evasion: bool,
-    pub max_force: f32,
-    pub max_speed: f32,
-    pub vision_radius: f32,
-    pub separation_strength: f32,
-    pub cohesion_strength: f32,
-    pub alignment_strength: f32,
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BoidsPlugin;
 
-impl Default for BoidsPlugin {
-    fn default() -> Self {
-        Self {
-            evasion: true,
-            max_force: 30.,
-            max_speed: 150.,
-            vision_radius: 100.,
-            separation_strength: 100.,
-            cohesion_strength: 70.,
-            alignment_strength: 10.,
-        }
-    }
-}
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ServiceSet;
 
 impl Plugin for BoidsPlugin {
     fn build(&self, app: &mut App) {
-        let BoidsPlugin {
-            evasion: _,
-            max_force,
-            max_speed,
-            vision_radius,
-            separation_strength,
-            cohesion_strength,
-            alignment_strength,
-        } = *self;
-        app.insert_resource(SimulationConfig {
-            max_force,
-            max_speed,
-            vision_radius,
-            separation_strength,
-            cohesion_strength,
-            alignment_strength,
-        })
-        .register_type::<SimulationConfig>()
-        .add_plugins(ResourceInspectorPlugin::<SimulationConfig>::default())
-        // Additional simulation plugins
-        .add_plugins(TargetPlugin)
-        // Behaviour plugins
-        .add_plugins(SeekPlugin)
-        .add_systems(
-            FixedUpdate,
-            (
-                rotate_boids,
-                // separation_boids,
-                // cohesion_boids,
-                // alignment_boids,
-                steer_boids,
-                screenwrap_boids,
+        let config = SimulationConfig::default();
+        app.insert_resource(config)
+            // Additional simulation plugins
+            .add_plugins((TargetPlugin, ConfigurationPlugin))
+            // Behaviour plugins
+            .add_plugins((
+                SeekPlugin,
+                SeparationPlugin,
+                AlignmentPlugin,
+                CohesionPlugin,
+            ))
+            .add_systems(
+                FixedUpdate,
+                (
+                    rotate_boids,
+                    steer_boids,
+                    screenwrap_boids,
+                    // reset_steer
+                )
+                    .chain()
+                    .in_set(ServiceSet),
             )
-                .chain(),
-        )
-        .add_systems(
-            Update,
-            (
-                // seek_cursor_boids
-                //     .before(steer_boids)
-                //     .after(separation_boids),
-                boids_gizmos,
-            ),
-        )
-        .add_event::<BoidSpawn>()
-        .add_observer(spawn_boid);
-
-        if self.evasion {
-            // app.add_systems(Update, (boid_avoidance).after(move_boids_forward));
-        }
+            .add_systems(Update, (boids_gizmos,))
+            // Config -> Service & Seek -> Separation -> Cohesion -> Alignment
+            .configure_sets(FixedUpdate, ConfigurationSet.before(ServiceSet))
+            .configure_sets(FixedUpdate, SeekSet.before(SeparationSet))
+            .configure_sets(FixedUpdate, SeparationSet.after(ServiceSet))
+            .configure_sets(FixedUpdate, CohesionSet.after(SeparationSet))
+            .configure_sets(FixedUpdate, AlignmentSet.after(CohesionSet))
+            .add_event::<SpawnBoid>()
+            .add_observer(spawn_boid);
     }
 }
 
@@ -134,19 +111,8 @@ impl Default for SteeringDirection {
 )]
 pub struct Boid;
 
-#[derive(Reflect, Resource, Default, InspectorOptions)]
-#[reflect(Resource)]
-pub struct SimulationConfig {
-    pub max_force: f32,
-    pub max_speed: f32,
-    pub vision_radius: f32,
-    pub separation_strength: f32,
-    pub cohesion_strength: f32,
-    pub alignment_strength: f32,
-}
-
 #[derive(Event, Default)]
-pub struct BoidSpawn {
+pub struct SpawnBoid {
     pub loc: Vec2,
     pub angle: f32,
     pub special: bool,
@@ -156,7 +122,7 @@ pub struct BoidSpawn {
 pub struct SpecialBoid;
 
 pub fn spawn_boid(
-    trigger: Trigger<BoidSpawn>,
+    trigger: Trigger<SpawnBoid>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -183,6 +149,9 @@ pub fn spawn_boid(
         .spawn((
             Boid,
             Seek,
+            Separation,
+            Alignment,
+            Cohesion,
             SteeringDirection(direction),
             Transform::from_translation(trigger.loc.extend(0.)),
             Mesh2d(mesh),
@@ -224,11 +193,22 @@ pub fn boids_gizmos(
     q_special: Single<BoidsQuery, With<SpecialBoid>>,
     q_boids: Query<BoidsQuery, Without<SpecialBoid>>,
     q_vision_cones: Query<BoidVisionQuery>,
-    config: Res<SimulationConfig>,
+    vision_radius: Res<VisionRadius>,
+    max_speed: Res<MaxSpeed>,
     mut gizmos: Gizmos,
 ) {
     let pos = q_special.transform.translation.truncate();
-    gizmos.circle_2d(pos, config.vision_radius, WHITE);
+    gizmos.circle_2d(pos, vision_radius.0, WHITE);
+    gizmos.arrow_2d(
+        pos,
+        pos + q_special.dir.0.clamp_length_max(30.),
+        Color::srgba(1., 1., 0., q_special.dir.0.length()),
+    );
+    gizmos.arrow_2d(
+        pos,
+        pos + q_special.vel.xy().clamp_length(25., 25.),
+        Color::srgba(0., 1., 0., q_special.vel.xy().length() / max_speed.0),
+    );
 
     for vision_cone in q_vision_cones.iter() {
         if vision_cone.parent.get() != q_special.entity {
@@ -240,12 +220,8 @@ pub fn boids_gizmos(
                 let distance = (colliding_boid.transform.translation
                     - q_special.transform.translation)
                     .length();
-                let lines_color = Color::srgba(
-                    1.,
-                    0.,
-                    0.,
-                    (config.vision_radius - distance) / config.vision_radius,
-                );
+                let lines_color =
+                    Color::srgba(1., 0., 0., (vision_radius.0 - distance) / vision_radius.0);
                 gizmos.line_2d(
                     pos,
                     colliding_boid.transform.translation.truncate(),
@@ -257,13 +233,21 @@ pub fn boids_gizmos(
 }
 
 pub fn steer_boids(
-    mut q_boids: Populated<(&SteeringDirection, &mut LinearVelocity)>,
-    config: Res<SimulationConfig>,
+    mut q_boids: Populated<(
+        &SteeringDirection,
+        &mut LinearVelocity,
+        Option<&SpecialBoid>,
+    )>,
+    max_force: Res<MaxForce>,
+    max_speed: Res<MaxSpeed>,
 ) {
-    for (steer_direction, mut linear_velocity) in q_boids.iter_mut() {
-        let steer_force = steer_direction.0.clamp_length_max(config.max_force);
+    for (steer_direction, mut linear_velocity, special) in q_boids.iter_mut() {
+        let steer_force = steer_direction.0.clamp_length_max(max_force.0);
         let acceleration = steer_force; // Consider mass = 1
-        let new_velocity = (linear_velocity.xy() + acceleration).clamp_length_max(config.max_speed);
+        if special.is_some() {
+            // info!("Max force: {:?}, max speed: {:?}", max_force.0, max_speed.0);
+        }
+        let new_velocity = (linear_velocity.xy() + acceleration).clamp_length_max(max_speed.0);
         *linear_velocity = LinearVelocity::from(new_velocity);
     }
 }
@@ -273,89 +257,6 @@ pub fn rotate_boids(mut q_boids: Populated<(&LinearVelocity, &mut Transform), Wi
         let new_forward = an_vel.xy().normalize();
         let new_rot = Quat::from_rotation_z(new_forward.to_angle() - std::f32::consts::FRAC_PI_2);
         transform.rotation = new_rot
-    }
-}
-
-pub fn separation_boids(
-    mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
-    q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
-    config: Res<SimulationConfig>,
-) {
-    for (colliding_entities, parent) in q_boid_vision.iter() {
-        if colliding_entities.len() == 0 {
-            // We should only do this whole thing if there's something to collide with
-            continue;
-        }
-        let mut separation_force = Vec2::ZERO;
-        let parent_ent = parent.get();
-        let (_, _, parent_tr) = q_boids.get(parent_ent).unwrap();
-
-        for colliding_ent in colliding_entities.iter() {
-            let (_, _, other_tr) = q_boids.get(*colliding_ent).unwrap();
-            let sep_force_cur = (parent_tr.translation - other_tr.translation).truncate();
-            separation_force = (separation_force + sep_force_cur).normalize()
-                * config.separation_strength
-                / config.vision_radius;
-        }
-
-        let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
-        parent_steer.0 += separation_force;
-    }
-}
-
-pub fn cohesion_boids(
-    mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
-    q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
-    config: Res<SimulationConfig>,
-) {
-    for (colliding_entities, parent) in q_boid_vision.iter() {
-        if colliding_entities.len() == 0 {
-            // We should only do this whole thing if there's something to collide with
-            continue;
-        }
-
-        let mut avg_pos = Vec2::ZERO;
-        let parent_ent = parent.get();
-        let (_, _, parent_tr) = q_boids.get(parent_ent).unwrap();
-
-        for colliding_ent in colliding_entities.iter() {
-            let (_, _, other_tr) = q_boids.get(*colliding_ent).unwrap();
-            avg_pos += other_tr.translation.truncate();
-        }
-
-        avg_pos /= colliding_entities.len() as f32;
-
-        let to_avg_steer = avg_pos - parent_tr.translation.truncate();
-        let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
-        parent_steer.0 += to_avg_steer.normalize() * config.cohesion_strength;
-    }
-}
-
-pub fn alignment_boids(
-    mut q_boids: Populated<(&mut SteeringDirection, &LinearVelocity, &Transform), With<Boid>>,
-    q_boid_vision: Populated<(&CollidingEntities, &Parent), With<BoidVisionCone>>,
-    config: Res<SimulationConfig>,
-) {
-    for (colliding_entities, parent) in q_boid_vision.iter() {
-        if colliding_entities.len() == 0 {
-            // We should only do this whole thing if there's something to collide with
-            continue;
-        }
-
-        let mut avg_vel = Vec2::ZERO;
-        let parent_ent = parent.get();
-        let (_, parent_vel, _) = q_boids.get(parent_ent).unwrap();
-
-        for colliding_ent in colliding_entities.iter() {
-            let (_, other_vel, _) = q_boids.get(*colliding_ent).unwrap();
-            avg_vel += other_vel.xy();
-        }
-
-        avg_vel /= colliding_entities.len() as f32;
-
-        let to_avg_vel_steer = avg_vel - parent_vel.xy();
-        let (mut parent_steer, _, _) = q_boids.get_mut(parent_ent).unwrap();
-        parent_steer.0 += to_avg_vel_steer.normalize() * config.alignment_strength;
     }
 }
 
@@ -387,3 +288,31 @@ pub fn screenwrap_boids(
         transform.translation.y = wrapy(transform.translation.y);
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     fn create_test_app() -> App {
+//         let mut app = App::new();
+//         app.add_plugins(MinimalPlugins);
+//         app
+//     }
+
+//     #[test]
+//     fn boid_spawning() {
+//         let mut app = create_test_app();
+//         app.add_plugins((BoidsPlugin::default(), PhysicsPlugins::default()));
+//         app.world_mut().trigger(SpawnBoid {
+//             loc: Vec2::new(10., 20.),
+//             angle: std::f32::consts::FRAC_PI_3,
+//             special: false,
+//         });
+//         app.update();
+//         let mut transform = app
+//             .world_mut()
+//             .query_filtered::<&Transform, With<Boid>>()
+//             .get_single(app.world());
+//         assert_eq!(transform.unwrap().translation, Vec3::new(10., 20., 0.));
+//     }
+// }

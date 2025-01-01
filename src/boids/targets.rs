@@ -13,7 +13,10 @@ impl Plugin for TargetPlugin {
             .add_observer(spawn_target::<FleeTarget>)
             .add_systems(
                 FixedUpdate,
-                (despawn_targets::<SeekTarget>, despawn_targets::<FleeTarget>),
+                (
+                    // despawn_targets::<SeekTarget>,
+                    despawn_targets::<FleeTarget>
+                ),
             );
     }
 }
@@ -23,6 +26,9 @@ pub struct SeekTarget;
 
 #[derive(Component, Default)]
 pub struct FleeTarget;
+
+#[derive(Component, Default)]
+pub struct Obstacle;
 
 #[derive(Component, Default)]
 pub struct Target<T> {
@@ -61,7 +67,7 @@ fn spawn_target<T>(
 
     commands
         .spawn((
-            Transform::from_translation(trigger.pos.extend(0.)),
+            Transform::from_translation(trigger.pos.extend(1.)),
             Mesh2d(meshes.add(target_mesh)),
             MeshMaterial2d(materials.add(target_material)),
             T::default(),

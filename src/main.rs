@@ -1,31 +1,45 @@
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use boids::{BoidSpawn, BoidsPlaygroundPlugin, BoidsPlugin};
+use boids::{BoidsPlugin, SpawnBoid};
+use editor::EditorPlugin;
+use input::SimulationInputPlugin;
 
 use crate::prelude::*;
 
-mod prelude {
-    pub use avian2d::prelude::*;
-    pub use bevy::prelude::*;
-    pub use rand::Rng;
+mod prelude;
 
-    #[derive(PhysicsLayer, Default)]
-    pub enum GameCollisionLayer {
-        #[default]
-        Default,
-        VisionCones,
-        Boids,
-    }
-}
+mod editor;
+
+mod input;
 
 mod boids;
 
-fn debug_special_boid(
-    q_special: Populated<Entity, With<boids::SpecialBoid>>,
-    q_vision_cones: Populated<(&CollidingEntities, &Parent), With<boids::BoidVisionCone>>,
-) {
-    for (colliding_entities, parent) in q_vision_cones.iter() {
-        if q_special.get(parent.get()).is_ok() {
-            info!("Special boid sees {} boids", colliding_entities.len());
+#[cfg(test)]
+mod tests;
+
+#[derive(Component)]
+pub struct MainCamera;
+
+#[derive(Component)]
+pub struct DesiredDir(Vec2);
+
+fn setup(mut commands: Commands) {
+    commands.spawn((Camera2d::default(), MainCamera));
+
+    let x_count = 10;
+    let y_count = 10;
+    let x_gap = 50.;
+    let y_gap = 50.;
+
+    for x in 0..x_count {
+        for y in 0..y_count {
+            let loc = (x as f32 * x_gap, y as f32 * y_gap).into();
+            let angle = rand::thread_rng().gen_range((0.)..std::f32::consts::TAU);
+            // let angle = -std::f32::consts::PI * x as f32 + std::f32::consts::FRAC_PI_2;
+            let trigger = SpawnBoid {
+                loc,
+                angle,
+                special: x == 0 && y == 0,
+            };
+            commands.trigger(trigger);
         }
     }
 }
@@ -35,15 +49,12 @@ fn main() {
         .add_plugins((
             DefaultPlugins,
             PhysicsPlugins::default(),
+            EditorPlugin,
+            SimulationInputPlugin,
             // WorldInspectorPlugin::new(),
             // PhysicsDebugPlugin::default(),
             BoidsPlugin::default(),
-            BoidsPlaygroundPlugin {
-                x_count: 5,
-                y_count: 5,
-                x_gap: 150.,
-                y_gap: 150.,
-            },
         ))
+        .add_systems(Startup, setup)
         .run();
 }

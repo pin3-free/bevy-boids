@@ -11,13 +11,7 @@ impl Plugin for TargetPlugin {
             .add_event::<SpawnTarget<FleeTarget>>()
             .add_observer(spawn_target::<SeekTarget>)
             .add_observer(spawn_target::<FleeTarget>)
-            .add_systems(
-                FixedUpdate,
-                (
-                    // despawn_targets::<SeekTarget>,
-                    despawn_targets::<FleeTarget>
-                ),
-            );
+            .add_systems(FixedUpdate, despawn_targets::<FleeTarget>);
     }
 }
 

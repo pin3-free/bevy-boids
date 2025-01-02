@@ -1,7 +1,8 @@
-use crate::prelude::*;
-
-use super::{targets::SeekTarget, BoidVisionQuery, BoidsQuery, SimulationConfig};
-
+use super::{
+    targets::SeekTarget, App, BoidVisionQuery, BoidsQuery, Commands, Component, FixedUpdate,
+    MeshPickingPlugin, Plugin, Populated, Res, SimulationConfig, SystemSet, Transform,
+    Vec2Swizzles, With,
+};
 pub struct SeekPlugin;
 
 impl Plugin for SeekPlugin {

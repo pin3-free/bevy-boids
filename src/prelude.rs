@@ -9,4 +9,5 @@ pub enum GameCollisionLayer {
     VisionCones,
     Boids,
     Targets,
+    Obstacles,
 }

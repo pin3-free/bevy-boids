@@ -31,14 +31,27 @@ impl Plugin for ConfigurationPlugin {
 #[derive(Reflect, Resource, InspectorOptions)]
 #[reflect(Resource)]
 pub struct SimulationConfig {
+    /// The maximum force that can be applied to a boid
     pub max_force: f32,
+    /// The maximum speed of a boid
     pub max_speed: f32,
+    /// The radius, at which the boid sees its flockmates
     pub vision_radius: f32,
+    /// The weight of the separation instinct
     pub separation_strength: f32,
+    /// The weight of the cohesion instinct
     pub cohesion_strength: f32,
+    /// The weight of the alignment instinct
     pub alignment_strength: f32,
+    /// The weight of the seek instinct
     pub seek_strength: f32,
-    pub detection_density: i32,
+    /// The number of rays that will be uniformly cast on _one side_ during
+    /// the obstacle detection process
+    pub obstacle_detection_density: i32,
+    /// The radius at which the boid starts taking evasive action, expressed as
+    /// a fraction of the vision radius
+    pub obstacle_detection_radius_rel: f32,
+    /// The weight of the obstacle avoidance instinct
     pub obstacle_avoidance_strength: f32,
 }
 
@@ -52,8 +65,9 @@ impl Default for SimulationConfig {
             cohesion_strength: 1.,
             alignment_strength: 0.2,
             seek_strength: 0.1,
-            detection_density: 10,
-            obstacle_avoidance_strength: 3.,
+            obstacle_detection_radius_rel: 0.5,
+            obstacle_detection_density: 10,
+            obstacle_avoidance_strength: 2.,
         }
     }
 }

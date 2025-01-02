@@ -26,11 +26,23 @@ impl Default for ObstacleType {
     }
 }
 
-#[derive(Event, Default)]
+#[derive(Event)]
 pub struct SpawnObstacle {
     pos: Vec2,
     angle: f32,
     obstacle_type: ObstacleType,
+    color: Color,
+}
+
+impl Default for SpawnObstacle {
+    fn default() -> Self {
+        Self {
+            color: Color::hsl(0.3, 0.3, 0.3),
+            pos: Default::default(),
+            angle: Default::default(),
+            obstacle_type: Default::default(),
+        }
+    }
 }
 
 impl SpawnObstacle {
@@ -55,6 +67,10 @@ impl SpawnObstacle {
     pub fn with_angle(self, angle: f32) -> Self {
         Self { angle, ..self }
     }
+
+    pub fn with_color(self, color: Color) -> Self {
+        Self { color, ..self }
+    }
 }
 
 fn spawn_obstacle(
@@ -63,7 +79,7 @@ fn spawn_obstacle(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let obstacle_material = materials.add(ColorMaterial::from_color(Color::hsl(0.3, 0.3, 0.3)));
+    let obstacle_material = materials.add(ColorMaterial::from_color(trigger.color));
     let (obstacle_shape, obstacle_collider) = match trigger.obstacle_type {
         ObstacleType::Circle(radius) => (meshes.add(Circle::new(radius)), Collider::circle(radius)),
         ObstacleType::Rectangle(width, height) => (

@@ -34,9 +34,10 @@ fn obstacle_avoidance(
     mut step_angle: Local<f32>,
 ) {
     if config.is_changed() {
-        *step_angle = std::f32::consts::TAU / (2. * (config.detection_density as f32 + 1.));
+        *step_angle =
+            std::f32::consts::TAU / (2. * (config.obstacle_detection_density as f32 + 1.));
         let mut new_angles = Vec::new();
-        for i in 1..(config.detection_density + 1) {
+        for i in 1..(config.obstacle_detection_density + 1) {
             let cast_angle = i as f32 * *step_angle;
             let new_dir_right = Vec2::Y.rotate_towards(-Vec2::Y, cast_angle);
             let new_dir_left = Vec2::Y.rotate_towards(-Vec2::Y, -cast_angle);
@@ -113,7 +114,7 @@ fn obstacle_detection(
         let hit_test = spatial_query.cast_ray(
             boid.transform.translation.xy(),
             Dir2::new(boid.vel.xy()).expect("The vec shouldn't be of len 0, infinite or nan"),
-            vision_radius.0,
+            vision_radius.0 / 2.,
             false,
             &SpatialQueryFilter::from_mask(GameCollisionLayer::Obstacles),
         );

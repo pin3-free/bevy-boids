@@ -21,8 +21,8 @@ pub struct MainCamera;
 fn setup(mut commands: Commands) {
     commands.spawn((Camera2d::default(), MainCamera));
 
-    let x_count = 10;
-    let y_count = 10;
+    let x_count = 5;
+    let y_count = 5;
     let x_gap = 50.;
     let y_gap = 50.;
 
@@ -40,16 +40,19 @@ fn setup(mut commands: Commands) {
         }
     }
 
-    commands.trigger(
-        SpawnObstacle::rectangle(100., 100.)
-            .with_angle(std::f32::consts::FRAC_PI_4)
-            .with_pos(Vec2::new(-200., -200.)),
-    );
-    commands.trigger(
-        SpawnObstacle::rectangle(100., 100.)
-            .with_angle(std::f32::consts::FRAC_PI_4)
-            .with_pos(Vec2::new(-400., -200.)),
-    );
+    let bounding_box_color = Color::srgb(0.1, 0.1, 0.1);
+    commands.trigger(SpawnObstacle::rectangle(800., 600.).with_color(bounding_box_color));
+
+    // commands.trigger(
+    //     SpawnObstacle::rectangle(100., 100.)
+    //         .with_angle(std::f32::consts::FRAC_PI_4)
+    //         .with_pos(Vec2::new(-200., -200.)),
+    // );
+    // commands.trigger(
+    //     SpawnObstacle::rectangle(100., 100.)
+    //         .with_angle(std::f32::consts::FRAC_PI_4)
+    //         .with_pos(Vec2::new(-400., -200.)),
+    // );
 }
 
 fn main() {

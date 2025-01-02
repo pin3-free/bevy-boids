@@ -384,6 +384,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "egui_dock",
+ "i-cant-believe-its-not-bsn",
  "rand",
 ]
 
@@ -2676,6 +2677,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
 dependencies = [
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "i-cant-believe-its-not-bsn"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7474a31ec53e6e5220a8cf3b9cc4f538635eaa1d4d3675287d06fdf6a162c18b"
+dependencies = [
+ "bevy_ecs",
+ "bevy_hierarchy",
 ]
 
 [[package]]

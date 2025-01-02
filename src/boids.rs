@@ -71,7 +71,7 @@ impl Plugin for BoidsPlugin {
                 (
                     rotate_boids,
                     steer_boids,
-                    screenwrap_boids,
+                    // screenwrap_boids,
                     // reset_steer
                 )
                     .chain()

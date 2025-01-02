@@ -20,6 +20,10 @@ fn alignment_behaviour(
     config: Res<SimulationConfig>,
 ) {
     for vision_cone in q_vision_cones.iter() {
+        if vision_cone.colliding.is_empty() {
+            continue;
+        }
+
         let seen_boids = vision_cone
             .colliding
             .iter()

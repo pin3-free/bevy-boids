@@ -38,18 +38,22 @@ pub struct SimulationConfig {
     pub cohesion_strength: f32,
     pub alignment_strength: f32,
     pub seek_strength: f32,
+    pub detection_density: i32,
+    pub obstacle_avoidance_strength: f32,
 }
 
 impl Default for SimulationConfig {
     fn default() -> Self {
         Self {
             max_force: 0.75,
-            max_speed: 100.,
+            max_speed: 150.,
             vision_radius: 1.5,
             separation_strength: 1.05,
             cohesion_strength: 1.,
             alignment_strength: 0.2,
             seek_strength: 0.1,
+            detection_density: 10,
+            obstacle_avoidance_strength: 3.,
         }
     }
 }

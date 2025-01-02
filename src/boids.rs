@@ -3,6 +3,8 @@ use bevy::{color::palettes::css::WHITE, ecs::query::QueryData};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
 use cohesion::{Cohesion, CohesionPlugin, CohesionSet};
 use configuration::{ConfigurationPlugin, ConfigurationSet, MaxForce, MaxSpeed, VisionRadius};
+use obstacle_avoidance::{ObstacleAvoidance, ObstacleAvoidancePlugin, ObstacleAvoidanceSet};
+use obstacles::ObstaclesPlugin;
 use seek::{Seek, SeekPlugin, SeekSet};
 use separation::{Separation, SeparationPlugin, SeparationSet};
 use targets::TargetPlugin;
@@ -22,6 +24,10 @@ pub mod cohesion;
 pub mod targets;
 
 pub mod configuration;
+
+pub mod obstacle_avoidance;
+
+pub mod obstacles;
 
 #[derive(QueryData)]
 #[query_data(mutable)]
@@ -51,13 +57,14 @@ impl Plugin for BoidsPlugin {
         let config = SimulationConfig::default();
         app.insert_resource(config)
             // Additional simulation plugins
-            .add_plugins((TargetPlugin, ConfigurationPlugin))
+            .add_plugins((TargetPlugin, ConfigurationPlugin, ObstaclesPlugin))
             // Behaviour plugins
             .add_plugins((
                 SeekPlugin,
                 SeparationPlugin,
                 AlignmentPlugin,
                 CohesionPlugin,
+                ObstacleAvoidancePlugin,
             ))
             .add_systems(
                 FixedUpdate,
@@ -71,9 +78,10 @@ impl Plugin for BoidsPlugin {
                     .in_set(ServiceSet),
             )
             .add_systems(Update, (boids_gizmos,))
-            // Config -> Service & Seek -> Separation -> Cohesion -> Alignment
+            // Config -> Service & Seek -> Obstacle Avoidance -> Separation -> Cohesion -> Alignment
             .configure_sets(FixedUpdate, ConfigurationSet.before(ServiceSet))
             .configure_sets(FixedUpdate, SeekSet.before(SeparationSet))
+            .configure_sets(FixedUpdate, ObstacleAvoidanceSet.before(SeparationSet))
             .configure_sets(FixedUpdate, SeparationSet.after(ServiceSet))
             .configure_sets(FixedUpdate, CohesionSet.after(SeparationSet))
             .configure_sets(FixedUpdate, AlignmentSet.after(CohesionSet))
@@ -152,6 +160,7 @@ pub fn spawn_boid(
             Separation,
             Alignment,
             Cohesion,
+            ObstacleAvoidance,
             SteeringDirection(direction),
             Transform::from_translation(trigger.loc.extend(0.)),
             Mesh2d(mesh),
@@ -175,7 +184,11 @@ pub fn spawn_boid(
                 CollidingEntities::default(),
                 CollisionLayers::new(
                     GameCollisionLayer::VisionCones,
-                    [GameCollisionLayer::Boids, GameCollisionLayer::Targets],
+                    [
+                        GameCollisionLayer::Boids,
+                        GameCollisionLayer::Targets,
+                        GameCollisionLayer::Obstacles,
+                    ],
                 ),
                 Sensor,
             ));

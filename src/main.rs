@@ -1,4 +1,4 @@
-use boids::{BoidsPlugin, SpawnBoid};
+use boids::{obstacles::SpawnObstacle, BoidsPlugin, SpawnBoid};
 use editor::EditorPlugin;
 use input::SimulationInputPlugin;
 
@@ -17,9 +17,6 @@ mod tests;
 
 #[derive(Component)]
 pub struct MainCamera;
-
-#[derive(Component)]
-pub struct DesiredDir(Vec2);
 
 fn setup(mut commands: Commands) {
     commands.spawn((Camera2d::default(), MainCamera));
@@ -42,6 +39,17 @@ fn setup(mut commands: Commands) {
             commands.trigger(trigger);
         }
     }
+
+    commands.trigger(
+        SpawnObstacle::rectangle(100., 100.)
+            .with_angle(std::f32::consts::FRAC_PI_4)
+            .with_pos(Vec2::new(-200., -200.)),
+    );
+    commands.trigger(
+        SpawnObstacle::rectangle(100., 100.)
+            .with_angle(std::f32::consts::FRAC_PI_4)
+            .with_pos(Vec2::new(-400., -200.)),
+    );
 }
 
 fn main() {

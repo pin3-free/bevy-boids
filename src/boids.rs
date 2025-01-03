@@ -2,6 +2,7 @@ use alignment::{Alignment, AlignmentPlugin, AlignmentSet};
 use bevy::{color::palettes::css::WHITE, ecs::query::QueryData};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
 use cohesion::{Cohesion, CohesionPlugin, CohesionSet};
+use compude_shader::ComputeShaderPlugin;
 use configuration::{ConfigurationPlugin, ConfigurationSet, MaxForce, MaxSpeed, VisionRadius};
 use obstacle_avoidance::{ObstacleAvoidance, ObstacleAvoidancePlugin, ObstacleAvoidanceSet};
 use obstacles::ObstaclesPlugin;
@@ -28,6 +29,8 @@ pub mod configuration;
 pub mod obstacle_avoidance;
 
 pub mod obstacles;
+
+pub mod compude_shader;
 
 #[derive(QueryData)]
 #[query_data(mutable)]
@@ -57,7 +60,12 @@ impl Plugin for BoidsPlugin {
         let config = SimulationConfig::default();
         app.insert_resource(config)
             // Additional simulation plugins
-            .add_plugins((TargetPlugin, ConfigurationPlugin, ObstaclesPlugin))
+            .add_plugins((
+                TargetPlugin,
+                ConfigurationPlugin,
+                ObstaclesPlugin,
+                ComputeShaderPlugin,
+            ))
             // Behaviour plugins
             .add_plugins((
                 SeekPlugin,

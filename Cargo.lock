@@ -383,6 +383,7 @@ dependencies = [
  "avian2d",
  "bevy",
  "bevy-inspector-egui",
+ "bytemuck",
  "egui_dock",
  "i-cant-believe-its-not-bsn",
  "rand",

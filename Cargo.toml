@@ -7,6 +7,7 @@ edition = "2021"
 avian2d = "0.2.0"
 bevy = "0.15.0"
 bevy-inspector-egui = "0.28.0"
+bytemuck = { version = "1.21.0", features = ["derive"] }
 egui_dock = "0.15.0"
 i-cant-believe-its-not-bsn = "0.3.0"
 rand = "0.8.5"

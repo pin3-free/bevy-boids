@@ -2,19 +2,19 @@ use std::borrow::Cow;
 
 use bevy::render::{
     extract_resource::{ExtractResource, ExtractResourcePlugin},
-    gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete},
+    gpu_readback::{Readback, ReadbackComplete},
     graph::CameraDriverLabel,
     render_asset::RenderAssets,
     render_graph::{RenderGraph, RenderLabel},
     render_resource::{
-        BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntry, BufferUsages,
-        CachedComputePipelineId, ComputePassDescriptor, PipelineCache, ShaderStages,
+        binding_types::storage_buffer, BindGroup, BindGroupEntries, BindGroupLayout,
+        BindGroupLayoutEntries, BufferUsages, CachedComputePipelineId, ComputePassDescriptor,
+        PipelineCache, ShaderStages, ShaderType,
     },
     renderer::RenderDevice,
     storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
     Render, RenderApp, RenderSet,
 };
-use bytemuck::{Pod, Zeroable};
 
 use super::*;
 
@@ -37,9 +37,10 @@ impl Plugin for ComputeShaderPlugin {
     }
 
     fn build(&self, app: &mut App) {
-        app.insert_resource(BoidValue { val: 10. })
+        app
             // .add_systems(Update, print_value)
             .add_systems(Startup, shader_setup)
+            .add_systems(Update, sync_positions)
             .add_plugins((ExtractResourcePlugin::<ReadbackBuffer>::default(),));
     }
 }
@@ -50,26 +51,14 @@ pub struct BoidsPipeline {
     bind_group_layout: BindGroupLayout,
 }
 
-fn _print_value(value: Res<BoidValue>) {
-    info!("Value: {}", value.val);
-}
-
 impl FromWorld for BoidsPipeline {
     fn from_world(world: &mut World) -> Self {
         let bind_group_layout = world.resource::<RenderDevice>().create_bind_group_layout(
             Some("Boids compute bind group layout"),
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: bevy::render::render_resource::BindingType::Buffer {
-                    ty: bevy::render::render_resource::BufferBindingType::Storage {
-                        read_only: false,
-                    },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (storage_buffer::<Vec<BoidInfo>>(false),),
+            ),
         );
         let pipeline_cache = world.resource::<PipelineCache>();
         let shader = world.resource::<AssetServer>().load("shaders/boids.wgsl");
@@ -93,34 +82,45 @@ impl FromWorld for BoidsPipeline {
     }
 }
 
+#[derive(ShaderType, Debug, Clone, Copy)]
+pub struct BoidInfo {
+    position: Vec2,
+}
+
 #[derive(Resource)]
 pub struct BoidValueBindGroup(pub BindGroup);
 
 #[derive(Resource, ExtractResource, Clone)]
 pub struct ReadbackBuffer(pub Handle<ShaderStorageBuffer>);
 
-#[derive(ExtractResource, Resource, Clone, Copy, Pod, Zeroable)]
-#[repr(C)]
-pub struct BoidValue {
-    val: f32,
+fn sync_positions(
+    q_boids: Query<&Transform, With<Boid>>,
+    buffer: Res<ReadbackBuffer>,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+) {
+    let positions = q_boids
+        .iter()
+        .map(|t| BoidInfo {
+            position: t.translation.xy(),
+        })
+        .collect::<Vec<_>>();
+    let buf = buffers.get_mut(&buffer.0).expect("Buffer");
+    buf.set_data(positions);
 }
 
-pub fn shader_setup(
-    mut commands: Commands,
-    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
-    value: Res<BoidValue>,
-) {
-    let buf = [value.val];
-    let mut shader_buf = ShaderStorageBuffer::from(buf);
+fn print_readback(trigger: Trigger<ReadbackComplete>) {
+    let data: Vec<BoidInfo> = trigger.event().to_shader_type();
+    info!("Buffer after shader: {:?}", data);
+}
+
+pub fn shader_setup(mut commands: Commands, mut buffers: ResMut<Assets<ShaderStorageBuffer>>) {
+    let mut shader_buf = ShaderStorageBuffer::from(Vec::<BoidInfo>::new());
     shader_buf.buffer_description.usage |= BufferUsages::COPY_SRC;
     let buffer = buffers.add(shader_buf);
 
-    commands.spawn(Readback::buffer(buffer.clone())).observe(
-        |trigger: Trigger<ReadbackComplete>| {
-            let data: Vec<f32> = trigger.event().to_shader_type();
-            info!("Buffer after shader: {:?}", data);
-        },
-    );
+    commands
+        .spawn(Readback::buffer(buffer.clone()))
+        .observe(print_readback);
 
     commands.insert_resource(ReadbackBuffer(buffer));
 }

@@ -45,6 +45,7 @@ impl Default for SpawnObstacle {
     }
 }
 
+#[allow(unused)]
 impl SpawnObstacle {
     pub fn rectangle(width: f32, height: f32) -> Self {
         Self {

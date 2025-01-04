@@ -2,13 +2,16 @@ use std::borrow::Cow;
 
 use bevy::render::{
     extract_resource::{ExtractResource, ExtractResourcePlugin},
+    gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete},
     graph::CameraDriverLabel,
+    render_asset::RenderAssets,
     render_graph::{RenderGraph, RenderLabel},
     render_resource::{
-        BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BufferInitDescriptor,
-        BufferUsages, CachedComputePipelineId, ComputePassDescriptor, PipelineCache, ShaderStages,
+        BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntry, BufferUsages,
+        CachedComputePipelineId, ComputePassDescriptor, PipelineCache, ShaderStages,
     },
     renderer::RenderDevice,
+    storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
     Render, RenderApp, RenderSet,
 };
 use bytemuck::{Pod, Zeroable};
@@ -22,7 +25,9 @@ impl Plugin for ComputeShaderPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         render_app.init_resource::<BoidsPipeline>().add_systems(
             Render,
-            queue_bind_group.in_set(RenderSet::PrepareBindGroups),
+            prepare_bind_groups
+                .in_set(RenderSet::PrepareBindGroups)
+                .run_if(not(resource_exists::<BoidValueBindGroup>)),
         );
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
@@ -33,8 +38,9 @@ impl Plugin for ComputeShaderPlugin {
 
     fn build(&self, app: &mut App) {
         app.insert_resource(BoidValue { val: 10. })
-            .add_systems(Update, print_value)
-            .add_plugins(ExtractResourcePlugin::<BoidValue>::default());
+            // .add_systems(Update, print_value)
+            .add_systems(Startup, shader_setup)
+            .add_plugins((ExtractResourcePlugin::<ReadbackBuffer>::default(),));
     }
 }
 
@@ -44,7 +50,7 @@ pub struct BoidsPipeline {
     bind_group_layout: BindGroupLayout,
 }
 
-fn print_value(value: Res<BoidValue>) {
+fn _print_value(value: Res<BoidValue>) {
     info!("Value: {}", value.val);
 }
 
@@ -90,30 +96,47 @@ impl FromWorld for BoidsPipeline {
 #[derive(Resource)]
 pub struct BoidValueBindGroup(pub BindGroup);
 
+#[derive(Resource, ExtractResource, Clone)]
+pub struct ReadbackBuffer(pub Handle<ShaderStorageBuffer>);
+
 #[derive(ExtractResource, Resource, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct BoidValue {
     val: f32,
 }
 
-pub fn queue_bind_group(
+pub fn shader_setup(
+    mut commands: Commands,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+    value: Res<BoidValue>,
+) {
+    let buf = [value.val];
+    let mut shader_buf = ShaderStorageBuffer::from(buf);
+    shader_buf.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let buffer = buffers.add(shader_buf);
+
+    commands.spawn(Readback::buffer(buffer.clone())).observe(
+        |trigger: Trigger<ReadbackComplete>| {
+            let data: Vec<f32> = trigger.event().to_shader_type();
+            info!("Buffer after shader: {:?}", data);
+        },
+    );
+
+    commands.insert_resource(ReadbackBuffer(buffer));
+}
+
+pub fn prepare_bind_groups(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     pipeline: Res<BoidsPipeline>,
-    value: Res<BoidValue>,
+    buffer: Res<ReadbackBuffer>,
+    buffers: Res<RenderAssets<GpuShaderStorageBuffer>>,
 ) {
-    let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("Boids buffer"),
-        contents: bytemuck::cast_slice(&[value.val]),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    });
+    let buffer = buffers.get(&buffer.0).expect("Found buffer");
     let bind_group = render_device.create_bind_group(
         Some("Value bind group"),
         &pipeline.bind_group_layout,
-        &[BindGroupEntry {
-            binding: 0,
-            resource: buffer.as_entire_binding(),
-        }],
+        &BindGroupEntries::sequential((buffer.buffer.as_entire_buffer_binding(),)),
     );
     commands.insert_resource(BoidValueBindGroup(bind_group));
 }
@@ -144,6 +167,7 @@ impl bevy::render::render_graph::Node for BoidsNode {
             .expect("A pipeline???");
         pass.set_pipeline(&upd_pipeline);
         pass.dispatch_workgroups(8, 8, 1);
+
         Ok(())
     }
 }

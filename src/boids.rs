@@ -281,6 +281,8 @@ pub fn rotate_boids(mut q_boids: Populated<(&LinearVelocity, &mut Transform), Wi
     }
 }
 
+#[deprecated]
+#[allow(unused)]
 pub fn screenwrap_boids(
     mut q_boids: Populated<&mut Transform, With<Boid>>,
     q_window: Populated<&Window>,

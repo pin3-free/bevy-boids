@@ -1,7 +1,4 @@
-use bevy::input::{
-    gestures::{DoubleTapGesture, PanGesture, PinchGesture, RotationGesture},
-    mouse::MouseWheel,
-};
+use bevy::input::{gestures::PinchGesture, mouse::MouseWheel};
 use bevy_inspector_egui::{quick::ResourceInspectorPlugin, InspectorOptions};
 
 use crate::{
